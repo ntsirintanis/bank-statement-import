@@ -180,7 +180,8 @@ class OnlineBankStatementProviderPayPal(models.Model):
         self.ensure_one()
         if self.service != "paypal":
             return super()._obtain_statement_data(
-                date_since, date_until,
+                date_since,
+                date_until,
             )  # pragma: no cover
 
         currency = (self.currency_id or self.company_id.currency_id).name
@@ -265,6 +266,8 @@ class OnlineBankStatementProviderPayPal(models.Model):
     def _paypal_transaction_to_lines(self, data):
         transaction = data["transaction_info"]
         payer = data["payer_info"]
+        cart = data["cart_info"]
+        item_details = cart.get("item_details") or [{}]
         transaction_id = transaction["transaction_id"]
         event_code = transaction["transaction_event_code"]
         date = self._paypal_get_transaction_date(data)
@@ -273,7 +276,14 @@ class OnlineBankStatementProviderPayPal(models.Model):
         transaction_subject = transaction.get("transaction_subject")
         transaction_note = transaction.get("transaction_note")
         invoice = transaction.get("invoice_id")
+        item_name = item_details[0].get("item_name") if item_details else ""
         payer_name = payer.get("payer_name", {})
+        partner_id = (
+            self.env["sale.order"]
+            .search([("name", "=", item_name)], limit=1)
+            .partner_id
+            or self.env["res.partner"]
+        )
         payer_email = payer_name.get("email_address")
         if invoice:
             invoice = _("Invoice %s") % invoice
@@ -284,18 +294,20 @@ class OnlineBankStatementProviderPayPal(models.Model):
             note += " (%s)" % payer_email
         unique_import_id = "{}-{}".format(transaction_id, int(date.timestamp()))
         name = (
-            invoice
+            item_name
+            or invoice 
             or transaction_subject
             or transaction_note
-            or EVENT_DESCRIPTIONS.get(event_code)
             or ""
         )
         line = {
-            "name": name,
+            "name": (name + ' ' +  EVENT_DESCRIPTIONS.get(event_code)),
             "amount": str(total_amount),
             "date": date,
             "note": note,
             "unique_import_id": unique_import_id,
+            "transaction_type": EVENT_DESCRIPTIONS.get(event_code),
+            "partner_id": partner_id.id,
         }
         payer_full_name = payer_name.get("full_name") or payer_name.get(
             "alternate_full_name"
@@ -336,7 +348,8 @@ class OnlineBankStatementProviderPayPal(models.Model):
         url = (
             self.api_base or PAYPAL_API_BASE
         ) + "/v1/reporting/balances?currency_code={}&as_of_time={}".format(
-            currency, as_of_timestamp.isoformat() + "Z",
+            currency,
+            as_of_timestamp.isoformat() + "Z",
         )
         data = self._paypal_retrieve(url, token)
         available_balance = data["balances"][0].get("available_balance")
@@ -351,7 +364,10 @@ class OnlineBankStatementProviderPayPal(models.Model):
             (self.api_base or PAYPAL_API_BASE)
             + "/v1/reporting/transactions"
             + ("?start_date=%s" "&end_date=%s" "&fields=all")
-            % (transaction_date, transaction_date,)
+            % (
+                transaction_date,
+                transaction_date,
+            )
         )
         data = self._paypal_retrieve(url, token)
         transactions = data["transaction_details"]
@@ -452,7 +468,10 @@ class OnlineBankStatementProviderPayPal(models.Model):
         if "name" in content:
             return UserError(
                 "%s: %s"
-                % (content["name"], content.get("message", _("Unknown error")),)
+                % (
+                    content["name"],
+                    content.get("message", _("Unknown error")),
+                )
             )
 
         if "error" in content:
