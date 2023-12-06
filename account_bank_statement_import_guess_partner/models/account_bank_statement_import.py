@@ -23,35 +23,21 @@ class AccountBankStatementImport(models.TransientModel):
         """Find partner by searching invoice with reference or so name."""
         if transaction.get("partner_id", False):
             return
-        invoice_model = self.env["account.move"]
         sale_order_model = self.env["sale.order"]
-        invoice = None
         transaction_keys = ["ref", "name"]
         # transaction_id is introduced in base_transaction_id module.
-        invoice_fields = ["transaction_id", "invoice_origin", "ref", "name"]
-        sale_order_fields = ["client_order_ref", "name"]
+        sale_order_fields = ["origin", "transaction_id", "client_order_ref", "name"]
         for key in transaction_keys:
             value = transaction.get(key, False)
             if not value:
                 continue
-            for fieldname in invoice_fields:
-                # Do not depend on any other module,
-                # just ensure here that searchable fields exist.
-                if not hasattr(invoice_model, fieldname):
-                    continue
-                invoice = invoice_model.search([(fieldname, "=", value)], limit=1)
-                if invoice:
-                    # We need a partner of type contact here because of reconciliation.
-                    # Lines cannot be reconciled if partner is an address
-                    partner = self._get_effective_partner(invoice.partner_id)
-                    transaction["partner_id"] = partner.id
-                    return
             for fieldname in sale_order_fields:
+                if transaction.get("partner_id"):
+                    continue
                 sale_order = sale_order_model.search([(fieldname, "=", value)], limit=1)
                 if sale_order:
                     partner = self._get_effective_partner(sale_order.partner_id)
                     transaction["partner_id"] = partner.id
-                    return
 
     def _get_effective_partner(self, partner):
         """Find contact partner for invoice, sale order"""
