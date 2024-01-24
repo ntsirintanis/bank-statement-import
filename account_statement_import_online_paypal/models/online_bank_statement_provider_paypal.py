@@ -318,6 +318,8 @@ class OnlineBankStatementProviderPayPal(models.Model):
             or EVENT_DESCRIPTIONS.get(event_code)
             or ""
         )
+        if event_code:
+            note = note + _(" Transaction Type: ") + EVENT_DESCRIPTIONS.get(event_code)
         line = {
             "ref": name,
             "amount": str(total_amount),
