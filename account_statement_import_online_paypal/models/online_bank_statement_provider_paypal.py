@@ -281,7 +281,9 @@ class OnlineBankStatementProviderPayPal(models.Model):
     def _paypal_transaction_to_lines(self, data):
         transaction = data["transaction_info"]
         payer = data["payer_info"]
-        transaction_id = transaction["transaction_id"]
+        cart = data["cart_info"]
+        item_details = cart.get("item_details") or [{}]
+        transaction_id = transaction.get("invoice_id")
         event_code = transaction["transaction_event_code"]
         date = self._paypal_get_transaction_date(data)
         total_amount = self._paypal_get_transaction_total_amount(data)
@@ -289,7 +291,16 @@ class OnlineBankStatementProviderPayPal(models.Model):
         transaction_subject = transaction.get("transaction_subject")
         transaction_note = transaction.get("transaction_note")
         invoice = transaction.get("invoice_id")
+        item_name = item_details[0].get("item_name") if item_details else ""
         payer_name = payer.get("payer_name", {})
+        partner_id = self.env["res.partner"]
+        if transaction_id:
+            partner_id = (
+                self.env["sale.order"]
+                .search([("transaction_id", "=", transaction_id)], limit=1)
+                .partner_id
+                or self.env["res.partner"]
+            )
         payer_email = payer_name.get("email_address")
         if invoice:
             invoice = _("Invoice %s") % invoice
@@ -300,12 +311,21 @@ class OnlineBankStatementProviderPayPal(models.Model):
             note += " (%s)" % payer_email
         unique_import_id = "{}-{}".format(transaction_id, int(date.timestamp()))
         name = (
-            invoice
+            item_name
+            or invoice
             or transaction_subject
             or transaction_note
             or EVENT_DESCRIPTIONS.get(event_code)
             or ""
         )
+        if event_code:
+            event_string = _(" Transaction Type: ") + EVENT_DESCRIPTIONS.get(
+                event_code, "empty event code"
+            )
+            if note:
+                note = note + event_string
+            else:
+                note = event_string
         line = {
             "ref": name,
             "amount": str(total_amount),
@@ -313,6 +333,8 @@ class OnlineBankStatementProviderPayPal(models.Model):
             "payment_ref": note,
             "unique_import_id": unique_import_id,
             "raw_data": transaction,
+            "transaction_type": EVENT_DESCRIPTIONS.get(event_code),
+            "partner_id": partner_id.id,
         }
         payer_full_name = payer_name.get("full_name") or payer_name.get(
             "alternate_full_name"
