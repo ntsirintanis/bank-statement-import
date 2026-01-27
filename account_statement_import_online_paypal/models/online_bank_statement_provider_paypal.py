@@ -298,7 +298,7 @@ class OnlineBankStatementProviderPayPal(models.Model):
             partner_id = (
                 self.env["sale.order"]
                 .search([("transaction_id", "=", transaction_id)], limit=1)
-                .partner_id
+                .partner_id.commercial_partner_id
                 or self.env["res.partner"]
             )
         payer_email = payer_name.get("email_address")
